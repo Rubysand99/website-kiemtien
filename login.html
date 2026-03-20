@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<body style="background:#0b0f14;color:white;text-align:center">
+
+<h2>Đăng nhập</h2>
+
+<input id="user" placeholder="Username"><br><br>
+<input id="pass" type="password" placeholder="Password"><br><br>
+
+<button onclick="login()">Đăng nhập</button>
+<button onclick="register()">Đăng ký</button>
+
+<script>
+const API = "http://localhost:3000";
+
+function login(){
+ fetch(API+"/login",{
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({
+    username: user.value,
+    password: pass.value
+  })
+ }).then(r=>r.json()).then(d=>{
+   if(d.msg=="fail") alert("Sai tài khoản");
+   else{
+     localStorage.setItem("user", d.username);
+     window.location.href="dashboard.html";
+   }
+ });
+}
+
+function register(){
+ fetch(API+"/register",{
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({
+    username: user.value,
+    password: pass.value
+  })
+ }).then(()=>alert("Đăng ký thành công"));
+}
+</script>
+
+</body>
+</html>
