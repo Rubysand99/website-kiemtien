@@ -6,18 +6,18 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 👉 thay link MongoDB của bạn
-mongoose.connect("mongodb://127.0.0.1:27017/tuytam");
+// 👉 DÙNG MongoDB Atlas (free)
+mongoose.connect("YOUR_MONGODB_ATLAS_URL");
 
-// model user
+// model
 const User = mongoose.model("User", {
-  username: String,
+  username: { type:String, unique:true },
   password: String,
-  money: { type: Number, default: 0 },
-  lastClaim: { type: Number, default: 0 }
+  money: { type:Number, default:0 },
+  lastClaim: { type:Number, default:0 }
 });
 
-// đăng ký
+// REGISTER
 app.post("/register", async (req,res)=>{
   const {username,password} = req.body;
 
@@ -28,14 +28,14 @@ app.post("/register", async (req,res)=>{
   res.json({msg:"ok"});
 });
 
-// đăng nhập
+// LOGIN
 app.post("/login", async (req,res)=>{
   const user = await User.findOne(req.body);
   if(!user) return res.json({msg:"fail"});
   res.json(user);
 });
 
-// reward (1h/lần)
+// REWARD (ANTI SPAM)
 app.post("/reward", async (req,res)=>{
   const {username} = req.body;
 
@@ -44,16 +44,26 @@ app.post("/reward", async (req,res)=>{
 
   let now = Date.now();
 
+  // ⏳ 1 giờ
   if(now - user.lastClaim < 3600000){
-    return res.json({msg:"wait"});
+    return res.json({
+      msg:"wait",
+      time: Math.ceil((3600000 - (now-user.lastClaim))/60000)
+    });
   }
 
+  // 💰 cộng tiền
   user.money += 500;
   user.lastClaim = now;
 
   await user.save();
 
-  res.json({msg:"ok", money:user.money});
+  res.json({
+    msg:"ok",
+    money:user.money
+  });
 });
 
-app.listen(3000, ()=>console.log("Server chạy tại 3000"));
+app.listen(process.env.PORT || 3000, ()=>{
+  console.log("Server running...");
+});
