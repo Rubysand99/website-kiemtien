@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Xác nhận</title>
+
+<style>
+body{
+background:#0b0f14;
+color:white;
+font-family:Arial;
+text-align:center;
+padding-top:100px;
+}
+.box{
+background:#141a20;
+padding:20px;
+border-radius:10px;
+width:300px;
+margin:auto;
+}
+</style>
+</head>
+
+<body>
+
+<div class="box">
+
+<h2>✅ Hoàn thành!</h2>
+<p>Đang xác nhận...</p>
+
+<p id="msg"></p>
+
+</div>
+
+<script>
+
+const API = "https://website-kiemtien.onrender.com";
+let user = localStorage.getItem("user");
+
+if(!user){
+  document.getElementById("msg").innerText = "❌ Bạn chưa đăng nhập!";
+}else{
+
+fetch(API+"/reward",{
+ method:"POST",
+ headers:{"Content-Type":"application/json"},
+ body:JSON.stringify({username:user})
+})
+.then(r=>r.json())
+.then(d=>{
+
+ if(d.msg=="wait"){
+   document
