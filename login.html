@@ -1,45 +1,82 @@
 <!DOCTYPE html>
 <html>
-<body style="background:#0b0f14;color:white;text-align:center">
+<head>
+<meta charset="UTF-8">
+<title>Login</title>
 
-<h2>Đăng nhập</h2>
+<style>
+body{
+background:#0b0f14;
+color:white;
+text-align:center;
+padding-top:100px;
+font-family:Arial;
+}
+input{
+padding:10px;
+margin:10px;
+width:200px;
+}
+button{
+padding:10px 20px;
+background:#00ff99;
+border:none;
+border-radius:6px;
+}
+</style>
+</head>
 
-<input id="user" placeholder="Username"><br><br>
-<input id="pass" type="password" placeholder="Password"><br><br>
+<body>
 
-<button onclick="login()">Đăng nhập</button>
-<button onclick="register()">Đăng ký</button>
+<h2>🔑 Đăng nhập</h2>
+
+<input id="user" placeholder="Username"><br>
+<input id="pass" placeholder="Password" type="password"><br>
+
+<button onclick="login()">Login</button>
+<button onclick="register()">Register</button>
+
+<p id="msg"></p>
 
 <script>
+
 const API = "https://website-kiemtien.onrender.com";
 
-function login(){
- fetch(API+"/login",{
-  method:"POST",
-  headers:{"Content-Type":"application/json"},
-  body:JSON.stringify({
-    username: user.value,
-    password: pass.value
-  })
- }).then(r=>r.json()).then(d=>{
-   if(d.msg=="fail") alert("Sai tài khoản");
-   else{
-     localStorage.setItem("user", d.username);
-     window.location.href="dashboard.html";
-   }
- });
+function register(){
+fetch(API+"/register",{
+ method:"POST",
+ headers:{"Content-Type":"application/json"},
+ body:JSON.stringify({
+   username:user.value,
+   password:pass.value
+ })
+})
+.then(r=>r.json())
+.then(d=>{
+ msg.innerText = d.msg;
+});
 }
 
-function register(){
- fetch(API+"/register",{
-  method:"POST",
-  headers:{"Content-Type":"application/json"},
-  body:JSON.stringify({
-    username: user.value,
-    password: pass.value
-  })
- }).then(()=>alert("Đăng ký thành công"));
+function login(){
+fetch(API+"/login",{
+ method:"POST",
+ headers:{"Content-Type":"application/json"},
+ body:JSON.stringify({
+   username:user.value,
+   password:pass.value
+ })
+})
+.then(r=>r.json())
+.then(d=>{
+ if(d.msg=="ok"){
+   localStorage.setItem("user", d.username);
+   window.location.href="dashboard.html";
+ }else{
+   msg.innerText="Sai tài khoản!";
+ }
+});
 }
+
 </script>
 
 </body>
