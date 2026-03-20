@@ -1,40 +1,50 @@
 <!DOCTYPE html>
 <html>
-<body style="background:#0b0f14;color:white;text-align:center">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard</title>
 
-<h2>Dashboard</h2>
+<style>
+body{
+background:#0b0f14;
+color:white;
+text-align:center;
+padding-top:100px;
+font-family:Arial;
+}
+button{
+padding:12px 20px;
+background:#00ff99;
+border:none;
+border-radius:8px;
+margin:10px;
+}
+</style>
+</head>
 
-<p id="money">Money: 0</p>
+<body>
 
-<button onclick="earn()">💰 Vượt link kiếm tiền</button>
+<h2>💰 Dashboard</h2>
+
+<p>Xin chào: <span id="user"></span></p>
+
+<button onclick="earn()">💸 Vượt link kiếm tiền</button>
 
 <script>
-const API = "http://localhost:3000";
+
 let user = localStorage.getItem("user");
 
-// click → mở link
-function earn(){
-
-  window.open("https://link-target.net/1359000/25H5eIkwXq9L","_blank");
-
-  // sau 5s → cộng tiền
-  setTimeout(()=>{
-    fetch(API+"/reward",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({username:user})
-    })
-    .then(r=>r.json())
-    .then(d=>{
-      if(d.msg=="wait"){
-        alert("⏳ Chờ 1 tiếng!");
-      }else{
-        document.getElementById("money").innerText = "Money: " + d.money;
-      }
-    });
-  },5000);
-
+if(!user){
+  alert("Đăng nhập trước!");
+  window.location.href="login.html";
 }
+
+document.getElementById("user").innerText = user;
+
+function earn(){
+  window.location.href = "https://link-target.net/1359000/25H5eIkwXq9L";
+}
+
 </script>
 
 </body>
