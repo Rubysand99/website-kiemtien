@@ -2,50 +2,76 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Verify</title>
+<title>Xác minh</title>
 
 <style>
 body{
-background:#0b0f14;
+background:#0f0f0f;
 color:white;
+font-family:Arial;
 text-align:center;
 padding-top:100px;
-font-family:Arial;
+}
+
+input{
+padding:10px;
+font-size:16px;
+border-radius:5px;
+border:none;
+margin-top:10px;
+}
+
+button{
+padding:12px 25px;
+margin-top:15px;
+background:#00ff99;
+border:none;
+border-radius:6px;
+cursor:pointer;
 }
 </style>
+
 </head>
 
 <body>
 
-<h2>✅ Đang xác nhận...</h2>
+<h2>✅ Hoàn thành vượt link</h2>
+<p>Nhập Discord để nhận thưởng</p>
+
+<input id="user" placeholder="Tên Discord"><br>
+<button onclick="claim()">Nhận 500đ</button>
 
 <p id="msg"></p>
 
 <script>
-const API = "https://website-kiemtien.onrender.com";
 
-let user = localStorage.getItem("user");
+async function claim(){
 
-if(!user){
-  alert("Chưa login");
-}else{
+  let username = document.getElementById("user").value;
 
-fetch(API+"/reward",{
- method:"POST",
- headers:{"Content-Type":"application/json"},
- body:JSON.stringify({username:user})
-})
-.then(r=>r.json())
-.then(d=>{
- if(d.msg=="ok"){
-   alert("+500đ");
- }else{
-   alert("Chờ 1 tiếng");
- }
-})
-.catch(e=>alert("Lỗi API"));
+  let res = await fetch("https://website-kiemtien.onrender.com/reward",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ username })
+  });
+
+  let data = await res.json();
+
+  if(data.msg === "ok"){
+    document.getElementById("msg").innerText =
+      "🎉 Nhận thành công! Tổng: " + data.money + "đ";
+  }
+  else if(data.msg === "wait"){
+    document.getElementById("msg").innerText =
+      "⏳ Bạn phải chờ 1 giờ!";
+  }
+  else{
+    document.getElementById("msg").innerText =
+      "❌ Lỗi!";
+  }
 
 }
+
 </script>
 
 </body>
