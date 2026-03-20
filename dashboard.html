@@ -31,21 +31,19 @@ margin:10px;
 <button onclick="earn()">💸 Vượt link kiếm tiền</button>
 
 <script>
-
 let user = localStorage.getItem("user");
 
 if(!user){
-  alert("Đăng nhập trước!");
-  window.location.href="login.html";
+  alert("Chưa login");
+  location.href="login.html";
 }
 
-document.getElementById("user").innerText = user;
+document.body.innerHTML += "<p>Xin chào: "+user+"</p>";
 
 function earn(){
-  window.location.href = "https://link-target.net/1359000/25H5eIkwXq9L";
+  window.location.href="https://link-target.net/1359000/25H5eIkwXq9L";
 }
-
 </script>
-
+  
 </body>
 </html>
