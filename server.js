@@ -7,7 +7,7 @@ app.use(express.json());
 app.use(cors());
 
 // 👉 DÙNG MongoDB Atlas (free)
-mongoose.connect("YOUR_MONGODB_ATLAS_URL");
+mongoose.connect("mongodb+srv://hoangquan7b_db_user:pQ80blkjvTiZhLky@cluster0.ey5zv2p.mongodb.net/tuytam");
 
 // model
 const User = mongoose.model("User", {
