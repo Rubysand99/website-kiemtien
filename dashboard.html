@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<body style="background:#0b0f14;color:white;text-align:center">
+
+<h2>Dashboard</h2>
+
+<p id="money">Money: 0</p>
+
+<button onclick="earn()">💰 Vượt link kiếm tiền</button>
+
+<script>
+const API = "http://localhost:3000";
+let user = localStorage.getItem("user");
+
+// click → mở link
+function earn(){
+
+  window.open("https://link-target.net/1359000/25H5eIkwXq9L","_blank");
+
+  // sau 5s → cộng tiền
+  setTimeout(()=>{
+    fetch(API+"/reward",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:user})
+    })
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.msg=="wait"){
+        alert("⏳ Chờ 1 tiếng!");
+      }else{
+        document.getElementById("money").innerText = "Money: " + d.money;
+      }
+    });
+  },5000);
+
+}
+</script>
+
+</body>
+</html>
