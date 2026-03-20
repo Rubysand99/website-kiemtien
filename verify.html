@@ -22,12 +22,12 @@ font-family:Arial;
 <p id="msg"></p>
 
 <script>
-
 const API = "https://website-kiemtien.onrender.com";
+
 let user = localStorage.getItem("user");
 
 if(!user){
-  msg.innerText="❌ Chưa đăng nhập!";
+  alert("Chưa login");
 }else{
 
 fetch(API+"/reward",{
@@ -38,15 +38,14 @@ fetch(API+"/reward",{
 .then(r=>r.json())
 .then(d=>{
  if(d.msg=="ok"){
-   msg.innerText="💰 +500đ!";
+   alert("+500đ");
+ }else{
+   alert("Chờ 1 tiếng");
  }
- else{
-   msg.innerText="⏳ Chờ 1 tiếng!";
- }
-});
+})
+.catch(e=>alert("Lỗi API"));
 
 }
-
 </script>
 
 </body>
