@@ -1,3 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Login</title>
+
+<style>
+body{
+background:#0b0f14;
+color:white;
+text-align:center;
+padding-top:100px;
+font-family:Arial;
+}
+input{
+padding:10px;
+margin:10px;
+width:200px;
+}
+button{
+padding:10px 20px;
+background:#00ff99;
+border:none;
+border-radius:6px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>🔑 Đăng nhập</h2>
+
+<input id="user" placeholder="Username"><br>
+<input id="pass" placeholder="Password" type="password"><br>
+
+<button onclick="login()">Login</button>
+<button onclick="register()">Register</button>
+
+<p id="msg"></p>
+
 <script>
 const API = "https://website-kiemtien.onrender.com";
 
@@ -37,3 +77,5 @@ fetch(API+"/login",{
 .catch(e=>alert("Lỗi API"));
 }
 </script>
+</body>
+</html>
