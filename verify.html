@@ -2,36 +2,24 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Xác nhận</title>
+<title>Verify</title>
 
 <style>
 body{
 background:#0b0f14;
 color:white;
-font-family:Arial;
 text-align:center;
 padding-top:100px;
-}
-.box{
-background:#141a20;
-padding:20px;
-border-radius:10px;
-width:300px;
-margin:auto;
+font-family:Arial;
 }
 </style>
 </head>
 
 <body>
 
-<div class="box">
-
-<h2>✅ Hoàn thành!</h2>
-<p>Đang xác nhận...</p>
+<h2>✅ Đang xác nhận...</h2>
 
 <p id="msg"></p>
-
-</div>
 
 <script>
 
@@ -39,7 +27,7 @@ const API = "https://website-kiemtien.onrender.com";
 let user = localStorage.getItem("user");
 
 if(!user){
-  document.getElementById("msg").innerText = "❌ Bạn chưa đăng nhập!";
+  msg.innerText="❌ Chưa đăng nhập!";
 }else{
 
 fetch(API+"/reward",{
@@ -49,6 +37,17 @@ fetch(API+"/reward",{
 })
 .then(r=>r.json())
 .then(d=>{
+ if(d.msg=="ok"){
+   msg.innerText="💰 +500đ!";
+ }
+ else{
+   msg.innerText="⏳ Chờ 1 tiếng!";
+ }
+});
 
- if(d.msg=="wait"){
-   document
+}
+
+</script>
+
+</body>
+</html>
