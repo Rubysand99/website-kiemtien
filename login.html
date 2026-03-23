@@ -1,37 +1,16 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
 <meta charset="UTF-8">
 <title>Login</title>
-
-<style>
-body{
-background:#0b0f14;
-color:white;
-text-align:center;
-padding-top:100px;
-font-family:Arial;
-}
-input{
-padding:10px;
-margin:10px;
-width:200px;
-}
-button{
-padding:10px 20px;
-background:#00ff99;
-border:none;
-border-radius:6px;
-}
-</style>
 </head>
-
 <body>
 
-<h2>🔑 Đăng nhập</h2>
+<h2>Login / Register</h2>
 
-<input id="user" placeholder="Username"><br>
-<input id="pass" placeholder="Password" type="password"><br>
+<input id="username" placeholder="username">
+<input id="password" placeholder="password">
+<br><br>
 
 <button onclick="login()">Login</button>
 <button onclick="register()">Register</button>
@@ -39,43 +18,45 @@ border-radius:6px;
 <p id="msg"></p>
 
 <script>
+
 const API = "https://website-kiemtien.onrender.com";
 
-function register(){
-fetch(API+"/register",{
- method:"POST",
- headers:{"Content-Type":"application/json"},
- body:JSON.stringify({
-   username: document.getElementById("user").value,
-   password: document.getElementById("pass").value
- })
+function login(){
+let username = document.getElementById("username").value;
+let password = document.getElementById("password").value;
+
+fetch(API + "/login", {
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body: JSON.stringify({username,password})
 })
-.then(r=>r.json())
-.then(d=>alert(JSON.stringify(d)))
-.catch(e=>alert("Lỗi API"));
+.then(res=>res.json())
+.then(data=>{
+if(data.message === "OK"){
+localStorage.setItem("user", username);
+location.href="dashboard.html";
+}else{
+document.getElementById("msg").innerText = "Sai tài khoản";
+}
+});
 }
 
-function login(){
-fetch(API+"/login",{
- method:"POST",
- headers:{"Content-Type":"application/json"},
- body:JSON.stringify({
-   username: document.getElementById("user").value,
-   password: document.getElementById("pass").value
- })
+function register(){
+let username = document.getElementById("username").value;
+let password = document.getElementById("password").value;
+
+fetch(API + "/register", {
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body: JSON.stringify({username,password})
 })
-.then(r=>r.json())
-.then(d=>{
- if(d.msg=="ok"){
-   localStorage.setItem("user", d.username);
-   alert("Đăng nhập thành công");
-   location.href="dashboard.html";
- }else{
-   alert("Sai tài khoản");
- }
-})
-.catch(e=>alert("Lỗi API"));
+.then(res=>res.text())
+.then(msg=>{
+document.getElementById("msg").innerText = msg;
+});
 }
+
 </script>
+
 </body>
 </html>
