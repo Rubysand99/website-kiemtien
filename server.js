@@ -44,6 +44,10 @@ app.post("/login", async (req,res)=>{
   });
 });
 
+app.get("/", (req, res) => {
+  res.send("Server đang chạy OK 🚀");
+});
+
 // ====== VERIFY (NHẬN POINT) ======
 app.post("/verify", async (req,res)=>{
   const {username, link_id} = req.body;
