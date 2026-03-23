@@ -7,7 +7,7 @@ app.use(express.json());
 app.use(cors());
 
 // ====== CONNECT MONGODB ======
-mongoose.connect("mongodb+srv://rubynek209:YOUR_PASSWORD@cluster0.ey5zv2p.mongodb.net/earnpoint?retryWrites=true&w=majority")
+mongoose.connect("mongodb+srv://rubynek209:197155680el@cluster0.ey5zv2p.mongodb.net/earnpoint?retryWrites=true&w=majority")
 .then(()=>console.log("✅ MongoDB connected"))
 .catch(err=>console.log("❌ DB lỗi:", err));
 
