@@ -3,74 +3,88 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 
 const app = express();
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
-mongoose.connect("YOUR_MONGODB_URL");
+// ====== CONNECT MONGODB ======
+mongoose.connect("mongodb+srv://rubynek209:YOUR_PASSWORD@cluster0.ey5zv2p.mongodb.net/earnpoint?retryWrites=true&w=majority")
+.then(()=>console.log("✅ MongoDB connected"))
+.catch(err=>console.log("❌ DB lỗi:", err));
 
-const User = mongoose.model("User",{
-username:String,
-password:String,
-money:{type:Number,default:0},
-daily:{
-type:Object,
-default:{}
-}
+// ====== MODEL ======
+const User = mongoose.model("User", {
+  username: String,
+  password: String,
+  points: { type: Number, default: 0 },
+  links: { type: Object, default: {} } // lưu số lần vượt link mỗi ngày
 });
 
-// register
-app.post("/register",async(req,res)=>{
-let u = await User.findOne({username:req.body.username});
-if(u) return res.json({msg:"exist"});
+// ====== REGISTER ======
+app.post("/register", async (req,res)=>{
+  const {username,password} = req.body;
 
-await User.create(req.body);
-res.json({msg:"ok"});
+  let user = await User.findOne({username});
+  if(user) return res.send("User đã tồn tại");
+
+  await User.create({username,password});
+  res.send("Đăng ký thành công");
 });
 
-// login
-app.post("/login",async(req,res)=>{
-let u = await User.findOne(req.body);
-if(!u) return res.json({msg:"fail"});
-res.json({msg:"ok"});
+// ====== LOGIN ======
+app.post("/login", async (req,res)=>{
+  const {username,password} = req.body;
+
+  let user = await User.findOne({username,password});
+  if(!user) return res.send("Sai tài khoản");
+
+  res.json({
+    message: "OK",
+    user: username,
+    points: user.points
+  });
 });
 
-// get user
-app.get("/user/:name",async(req,res)=>{
-let u = await User.findOne({username:req.params.name});
-res.json(u);
+// ====== VERIFY (NHẬN POINT) ======
+app.post("/verify", async (req,res)=>{
+  const {username, link_id} = req.body;
+
+  let user = await User.findOne({username});
+  if(!user) return res.send("User không tồn tại");
+
+  let today = new Date().toDateString();
+
+  if(!user.links[link_id]){
+    user.links[link_id] = { date: today, count: 0 };
+  }
+
+  // reset nếu qua ngày mới
+  if(user.links[link_id].date !== today){
+    user.links[link_id] = { date: today, count: 0 };
+  }
+
+  // giới hạn 3 lần/ngày
+  if(user.links[link_id].count >= 3){
+    return res.send("Hôm nay bạn đã vượt link này đủ 3 lần");
+  }
+
+  user.links[link_id].count += 1;
+  user.points += 10;
+
+  await user.save();
+
+  res.send("+10 point");
 });
 
-// reward
-app.post("/reward",async(req,res)=>{
-let {username,link_id} = req.body;
+// ====== LẤY THÔNG TIN USER ======
+app.get("/user/:username", async (req,res)=>{
+  let user = await User.findOne({username: req.params.username});
+  if(!user) return res.send("Không tồn tại");
 
-let user = await User.findOne({username});
-if(!user) return res.json({msg:"fail"});
-
-let today = new Date().toDateString();
-
-if(!user.daily[link_id]){
-user.daily[link_id] = {date:today,count:0};
-}
-
-// reset ngày
-if(user.daily[link_id].date !== today){
-user.daily[link_id] = {date:today,count:0};
-}
-
-// check limit 3 lần
-if(user.daily[link_id].count >= 3){
-return res.json({msg:"limit"});
-}
-
-// cộng point
-user.money += 1;
-user.daily[link_id].count += 1;
-
-await user.save();
-
-res.json({msg:"ok",money:user.money});
-
+  res.json(user);
 });
 
-app.listen(10000,()=>console.log("Server chạy"));
+// ====== SERVER ======
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, ()=>{
+  console.log("🚀 Server chạy port", PORT);
+});
