@@ -14,8 +14,7 @@ mongoose.connect("mongodb+srv://rubynek209:197155680el@cluster0.ey5zv2p.mongodb.
 // ====== MODEL ======
 const Code = mongoose.model("Code", {
   code: String,
-  used: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
+  used: { type: Boolean, default: false }
 });
 
 // ====== ROOT ======
@@ -23,11 +22,10 @@ app.get("/", (req,res)=>{
   res.send("Server OK 🚀");
 });
 
-// ====== VERIFY → TẠO CODE ======
+// ====== TẠO CODE ======
 app.post("/verify", async (req,res)=>{
   try{
 
-    // random code
     let code = "EP-" + Math.random().toString(36).substring(2,8).toUpperCase();
 
     await Code.create({ code });
@@ -40,7 +38,7 @@ app.post("/verify", async (req,res)=>{
   }
 });
 
-// ====== CHECK CODE (CHO BOT) ======
+// ====== CHECK CODE ======
 app.post("/check-code", async (req,res)=>{
   const {code} = req.body;
 
