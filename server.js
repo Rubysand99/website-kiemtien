@@ -12,11 +12,18 @@ mongoose.connect("mongodb+srv://rubynek209:197155680el@cluster0.ey5zv2p.mongodb.
 .catch(err=>console.log("❌ DB lỗi:", err));
 
 // ====== MODEL ======
-const User = mongoose.model("User", {
+const userSchema = new mongoose.Schema({
   username: String,
   password: String,
   points: { type: Number, default: 0 },
-  links: { type: Object, default: {} } // lưu số lần vượt link mỗi ngày
+  links: { type: Map, of: Object, default: {} }
+});
+
+const User = mongoose.model("User", userSchema);
+
+// ====== ROOT ======
+app.get("/", (req, res) => {
+  res.send("Server đang chạy OK 🚀");
 });
 
 // ====== REGISTER ======
@@ -44,11 +51,7 @@ app.post("/login", async (req,res)=>{
   });
 });
 
-app.get("/", (req, res) => {
-  res.send("Server đang chạy OK 🚀");
-});
-
-// ====== VERIFY (NHẬN POINT) ======
+// ====== VERIFY ======
 app.post("/verify", async (req,res)=>{
   const {username, link_id} = req.body;
 
@@ -57,29 +60,32 @@ app.post("/verify", async (req,res)=>{
 
   let today = new Date().toDateString();
 
-  if(!user.links[link_id]){
-    user.links[link_id] = { date: today, count: 0 };
+  if(!user.links.get(link_id)){
+    user.links.set(link_id, { date: today, count: 0 });
   }
 
-  // reset nếu qua ngày mới
-  if(user.links[link_id].date !== today){
-    user.links[link_id] = { date: today, count: 0 };
+  let data = user.links.get(link_id);
+
+  if(data.date !== today){
+    data = { date: today, count: 0 };
   }
 
-  // giới hạn 3 lần/ngày
-  if(user.links[link_id].count >= 3){
+  if(data.count >= 3){
     return res.send("Hôm nay bạn đã vượt link này đủ 3 lần");
   }
 
-  user.links[link_id].count += 1;
+  data.count += 1;
   user.points += 10;
+
+  user.links.set(link_id, data);
+  user.markModified("links");
 
   await user.save();
 
   res.send("+10 point");
 });
 
-// ====== LẤY THÔNG TIN USER ======
+// ====== GET USER ======
 app.get("/user/:username", async (req,res)=>{
   let user = await User.findOne({username: req.params.username});
   if(!user) return res.send("Không tồn tại");
