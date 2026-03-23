@@ -7,8 +7,8 @@ app.use(express.json());
 app.use(cors());
 
 // ====== CONNECT MONGODB ======
-mongoose.connect("mongodb+srv://rubynek209:<db_password>@cluster0.ey5zv2p.mongodb.net/?appName=Cluster0")
-.then(()=>console.log("✅ MongoDB connected"))
+mongoose.connect("mongodb+srv://rubynek209:197155680el@cluster0.ey5zv2p.mongodb.net/earnpoint?retryWrites=true&w=majority")
+.then(()=>console.log("✅ DB OK"))
 .catch(err=>console.log("❌ DB lỗi:", err));
 
 // ====== MODEL ======
