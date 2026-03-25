@@ -1,220 +1,161 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const cors = require("cors");
 const axios = require("axios");
 const rateLimit = require("express-rate-limit");
+const mongoose = require("mongoose");
 
 const app = express();
-app.use(express.json());
-app.use(cors());
-app.set("trust proxy", true);
 
-// ===== RATE LIMIT =====
+app.use(cors());
+app.use(express.json());
+
+// ================= DATABASE =================
+
+mongoose.connect(process.env.MONGO_URL)
+.then(() => console.log("✅ DB OK"))
+.catch(err => console.log("❌ DB ERROR:", err));
+
+// schema
+const userSchema = new mongoose.Schema({
+  userId: String,
+  ip: String,
+  token: String,
+  fp: String,
+  lastTime: Number,
+  count: Number
+});
+
+const User = mongoose.model("User", userSchema);
+
+// ================= RATE LIMIT =================
+
 const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 20,
-  message: { status: "spam" }
+  windowMs: 15 * 1000, // 15s
+  max: 5
 });
 
 app.use("/get-code", limiter);
-app.use("/check-code", limiter);
 
-// ===== CONNECT DB =====
-mongoose.connect(process.env.MONGO_URL)
-.then(()=>console.log("✅ DB OK"))
-.catch(err=>console.log("❌ DB lỗi:", err));
+// ================= ROOT =================
 
-// ===== MODEL =====
-const User = mongoose.model("User", {
-  discordId: String,
-  token: String,
-  points: { type: Number, default: 0 },
-  daily: {
-    date: String,
-    count: Number
-  },
-  ip: String,
-  fingerprint: String,
-  lastGet: Number
+app.get("/", (req, res) => {
+  res.send("Server đang chạy OK 🚀");
 });
 
-const Code = mongoose.model("Code", {
-  code: String,
-  used: { type: Boolean, default: false },
-  usedBy: String,
-  expireAt: Number
-});
+// ================= GET CODE =================
 
-// ===== UTILS =====
-function genToken(){
-  return Math.random().toString(36).substring(2) + Date.now();
-}
+app.get("/get-code", async (req, res) => {
 
-async function verifyCaptcha(token){
-  try{
-    const res = await axios.post(
+  try {
+    const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+    const { userId, token, fp, captcha } = req.query;
+
+    if (!captcha) {
+      return res.json({ status: "captcha_fail" });
+    }
+
+    // ================= CAPTCHA VERIFY =================
+
+    const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
-        secret: process.env.TURNSTILE_SECRET,
-        response: token
+        secret: process.env.CF_SECRET,
+        response: captcha
       })
     );
-    return res.data.success;
-  }catch{
-    return false;
-  }
-}
 
-// ===== GET CODE =====
-app.get("/get-code", async (req,res)=>{
-  const { userId, token, fp, captcha } = req.query;
-
-  if(!userId) return res.json({ status: "error" });
-
-  // CAPTCHA
-  if(!(await verifyCaptcha(captcha))){
-    return res.json({ status: "captcha_fail" });
-  }
-
-  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-
-  // CHECK VPN
-  try{
-    const check = await axios.get(`http://ip-api.com/json/${ip}?fields=proxy,hosting`);
-    if(check.data.proxy || check.data.hosting){
-      return res.json({ status: "vpn_block" });
+    if (!verify.data.success) {
+      return res.json({ status: "captcha_fail" });
     }
-  }catch{}
 
-  let user = await User.findOne({ discordId: userId });
+    // ================= USER =================
 
-  if(!user){
-    user = await User.create({
-      discordId: userId,
-      token: genToken(),
-      daily: { date: "", count: 0 }
+    let user = await User.findOne({ userId });
+
+    if (!user) {
+      user = new User({
+        userId,
+        ip,
+        token: Math.random().toString(36),
+        fp,
+        lastTime: 0,
+        count: 0
+      });
+    }
+
+    // ================= TOKEN CHECK =================
+
+    if (token && token !== user.token) {
+      return res.json({ status: "device_changed" });
+    }
+
+    // ================= DEVICE CHECK =================
+
+    if (user.fp && user.fp !== fp) {
+      return res.json({ status: "device_changed" });
+    }
+
+    // ================= COOLDOWN =================
+
+    const now = Date.now();
+
+    if (now - user.lastTime < 15000) {
+      return res.json({ status: "cooldown" });
+    }
+
+    // ================= LIMIT / DAY =================
+
+    const today = new Date().toDateString();
+
+    if (!user.day || user.day !== today) {
+      user.day = today;
+      user.count = 0;
+    }
+
+    if (user.count >= 5) {
+      return res.json({ status: "limit" });
+    }
+
+    // ================= IP CHECK =================
+
+    const ipUsers = await User.countDocuments({ ip });
+
+    if (ipUsers > 5) {
+      return res.json({ status: "multi_detect" });
+    }
+
+    // ================= GENERATE CODE =================
+
+    const code = "RUBY-" + Math.floor(Math.random() * 1000000);
+
+    user.lastTime = now;
+    user.count += 1;
+    user.ip = ip;
+    user.fp = fp;
+
+    if (!user.token) {
+      user.token = Math.random().toString(36);
+    }
+
+    await user.save();
+
+    res.json({
+      status: "ok",
+      code: code,
+      token: user.token
     });
+
+  } catch (err) {
+    console.log(err);
+    res.json({ status: "error" });
   }
 
-  // TOKEN CHECK
-  if(user.token && token && user.token !== token){
-    return res.json({ status: "device_changed" });
-  }
-
-  if(!user.token){
-    user.token = genToken();
-  }
-
-  let today = new Date().toDateString();
-
-  if(user.daily.date !== today){
-    user.daily = { date: today, count: 0 };
-  }
-
-  // MULTI ACCOUNT CHECK
-  let sameIP = await User.countDocuments({
-    ip,
-    "daily.date": today
-  });
-
-  if(sameIP > 5){
-    return res.json({ status: "multi_detect" });
-  }
-
-  // DEVICE CHECK
-  let sameDevice = await User.countDocuments({
-    fingerprint: fp,
-    "daily.date": today
-  });
-
-  if(sameDevice > 3){
-    return res.json({ status: "device_limit" });
-  }
-
-  // LIMIT 5 CODE
-  if(user.daily.count >= 5){
-    return res.json({ status: "limit" });
-  }
-
-  // COOLDOWN
-  if(user.lastGet && Date.now() - user.lastGet < 15000){
-    return res.json({ status: "cooldown" });
-  }
-
-  // RANDOM DELAY
-  await new Promise(r => setTimeout(r, 1000 + Math.random()*2000));
-
-  // CREATE CODE
-  const code = "EP-" + Math.random().toString(36).substring(2,8).toUpperCase();
-
-  await Code.create({
-    code,
-    expireAt: Date.now() + 15 * 60 * 1000
-  });
-
-  user.daily.count += 1;
-  user.lastGet = Date.now();
-  user.ip = ip;
-  user.fingerprint = fp;
-
-  await user.save();
-
-  res.json({
-    status: "ok",
-    code,
-    token: user.token
-  });
 });
 
-// ===== CHECK CODE =====
-app.post("/check-code", async (req,res)=>{
-  const { code, discordId } = req.body;
+// ================= START SERVER =================
 
-  let c = await Code.findOne({ code });
+const PORT = process.env.PORT || 3000;
 
-  if(!c) return res.json({ status: "invalid" });
-  if(c.used) return res.json({ status: "used" });
-  if(Date.now() > c.expireAt)
-    return res.json({ status: "expired" });
-
-  let user = await User.findOne({ discordId });
-
-  if(!user){
-    user = await User.create({
-      discordId,
-      points: 0
-    });
-  }
-
-  c.used = true;
-  c.usedBy = discordId;
-
-  user.points += 1;
-
-  await c.save();
-  await user.save();
-
-  res.json({
-    status: "ok",
-    points: user.points
-  });
-});
-
-// ===== INFO =====
-app.get("/user/:id", async (req,res)=>{
-  let user = await User.findOne({ discordId: req.params.id });
-
-  if(!user) return res.json({ points: 0 });
-
-  res.json({ points: user.points });
-});
-
-// ===== TEST =====
-app.get("/", (req,res)=>{
-  res.send("🚀 Server chạy OK");
-});
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, ()=>{
+app.listen(PORT, "0.0.0.0", () => {
   console.log("🚀 Server chạy port", PORT);
 });
