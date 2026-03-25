@@ -47,46 +47,62 @@ app.post("/verify", async (req,res)=>{
 
 // ===== CHECK CODE =====
 app.post("/check-code", async (req,res)=>{
-  try{
+  const { code, discordId } = req.body;
 
-    const {code, discordId} = req.body;
+  const Code = mongoose.model("Code");
+  const User = mongoose.model("User");
 
-    let data = await Code.findOne({code});
+  let c = await Code.findOne({ code });
+  if(!c) return res.json({ status: "invalid" });
 
-    if(!data) return res.json({status:"invalid"});
-    if(data.used) return res.json({status:"used"});
+  if(c.used) return res.json({ status: "used" });
 
-    // ⏱️ kiểm tra hết hạn (15 phút)
-    let now = Date.now();
-    let created = new Date(data.createdAt).getTime();
+  if(Date.now() > c.expireAt)
+    return res.json({ status: "expired" });
 
-    if(now - created > 15 * 60 * 1000){
-      return res.json({status:"expired"});
-    }
-
-    // đánh dấu đã dùng
-    data.used = true;
-    await data.save();
-
-    // cộng point
-    let user = await User.findOne({discordId});
-
-    if(!user){
-      user = await User.create({discordId, points:0});
-    }
-
-    user.points += 1; // ✅ mỗi code = 1 point
-    await user.save();
-
-    res.json({
-      status: "ok",
-      points: user.points
+  // ===== USER =====
+  let user = await User.findOne({ discordId });
+  if(!user){
+    user = await User.create({
+      discordId,
+      points: 0,
+      daily: { date: "", count: 0 },
+      lastClaim: 0
     });
-
-  }catch(err){
-    console.log(err);
-    res.json({status:"error"});
   }
+
+  let today = new Date().toDateString();
+
+  // reset ngày
+  if(user.daily.date !== today){
+    user.daily = { date: today, count: 0 };
+  }
+
+  // ❌ GIỚI HẠN 5 CODE / NGÀY
+  if(user.daily.count >= 5){
+    return res.json({ status: "limit" });
+  }
+
+  // ❌ COOLDOWN 30 GIÂY
+  if(Date.now() - user.lastClaim < 30000){
+    return res.json({ status: "cooldown" });
+  }
+
+  // ===== NHẬN THƯỞNG =====
+  c.used = true;
+  c.usedBy = discordId;
+
+  user.points += 1;
+  user.daily.count += 1;
+  user.lastClaim = Date.now();
+
+  await c.save();
+  await user.save();
+
+  res.json({
+    status: "ok",
+    points: user.points
+  });
 });
 
 // ===== LEADERBOARD =====
