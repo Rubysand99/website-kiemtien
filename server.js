@@ -1,7 +1,8 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
-const rateLimit = require("express-rate-limit");
 const mongoose = require("mongoose");
 
 const app = express();
@@ -29,6 +30,7 @@ const userSchema = new mongoose.Schema({
 
 const codeSchema = new mongoose.Schema({
   code: String,
+  userId: String,
   used: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
@@ -36,46 +38,22 @@ const codeSchema = new mongoose.Schema({
 const User = mongoose.model("User", userSchema);
 const Code = mongoose.model("Code", codeSchema);
 
-// ================= RATE LIMIT =================
-
-const limiter = rateLimit({
-  windowMs: 15 * 1000,
-  max: 5
-});
-
-app.use("/get-code", limiter);
-
 // ================= ROOT =================
 
 app.get("/", (req, res) => {
-  res.send("Server đang chạy OK 🚀");
+  res.send("Server OK 🚀");
 });
-
-// ================= GEN CODE =================
-
-function genCode(){
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let code = "EP-";
-
-  for(let i = 0; i < 6; i++){
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-
-  return code;
-}
 
 // ================= GET CODE =================
 
 app.get("/get-code", async (req, res) => {
   try {
     const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-    const { userId, token, fp, captcha } = req.query;
+    const { userId, fp, captcha } = req.query;
 
-    if (!captcha) {
-      return res.json({ status: "captcha_fail" });
-    }
+    if (!captcha) return res.json({ status: "captcha_fail" });
 
-    // ===== CAPTCHA VERIFY =====
+    // ===== CAPTCHA =====
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
@@ -101,19 +79,17 @@ app.get("/get-code", async (req, res) => {
       });
     }
 
-    // ===== DEVICE CHECK (FIX NHẸ) =====
-    if (token && user.token && token !== user.token) {
-      return res.json({ status: "device_changed" });
-    }
+    // ❌ FIX: không check fp nữa (tránh lỗi device_changed)
+    // ================= COOLDOWN =================
 
-    // ===== COOLDOWN =====
     const now = Date.now();
 
     if (now - user.lastTime < 15000) {
       return res.json({ status: "cooldown" });
     }
 
-    // ===== LIMIT =====
+    // ================= LIMIT =================
+
     const today = new Date().toDateString();
 
     if (!user.day || user.day !== today) {
@@ -125,30 +101,28 @@ app.get("/get-code", async (req, res) => {
       return res.json({ status: "limit" });
     }
 
-    // ===== GENERATE CODE =====
-    const code = genCode();
+    // ================= GENERATE CODE =================
 
-    await Code.create({ code });
+    const code = "EP-" + Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    await Code.create({
+      code,
+      userId
+    });
 
     user.lastTime = now;
     user.count += 1;
     user.ip = ip;
-    user.fp = fp;
-
-    if (!user.token) {
-      user.token = Math.random().toString(36);
-    }
 
     await user.save();
 
     res.json({
       status: "ok",
-      code: code,
-      token: user.token
+      code
     });
 
   } catch (err) {
-    console.log(err);
+    console.log("ERROR:", err.response?.data || err);
     res.json({ status: "error" });
   }
 });
@@ -159,39 +133,22 @@ app.post("/check-code", async (req, res) => {
   try {
     const { code, discordId } = req.body;
 
-    const found = await Code.findOne({ code });
+    const data = await Code.findOne({ code });
 
-    if (!found) {
+    if (!data) {
       return res.json({ status: "invalid" });
     }
 
-    // hết hạn 60s
-    if (Date.now() - new Date(found.createdAt).getTime() > 60000) {
-      return res.json({ status: "expired" });
+    if (data.used) {
+      return res.json({ status: "invalid" });
     }
 
-    if (found.used) {
-      return res.json({ status: "expired" });
-    }
-
-    found.used = true;
-    await found.save();
-
-    let user = await User.findOne({ userId: discordId });
-
-    if (!user) {
-      user = new User({
-        userId: discordId,
-        count: 0
-      });
-    }
-
-    user.count = (user.count || 0) + 1;
-    await user.save();
+    data.used = true;
+    await data.save();
 
     res.json({
       status: "ok",
-      points: user.count
+      points: 1
     });
 
   } catch (err) {
