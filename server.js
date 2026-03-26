@@ -6,20 +6,16 @@ const mongoose = require("mongoose");
 
 const app = express();
 
-// ================= CONFIG =================
-
-app.set("trust proxy", true); // fix IP khi deploy Render
 app.use(cors());
 app.use(express.json());
 
 // ================= DATABASE =================
 
 mongoose.connect(process.env.MONGO_URL)
-  .then(() => console.log("✅ DB OK"))
-  .catch(err => console.log("❌ DB ERROR:", err));
+.then(() => console.log("✅ DB OK"))
+.catch(err => console.log("❌ DB ERROR:", err));
 
-// ================= SCHEMA =================
-
+// schema
 const userSchema = new mongoose.Schema({
   userId: String,
   ip: String,
@@ -47,6 +43,19 @@ app.get("/", (req, res) => {
   res.send("Server đang chạy OK 🚀");
 });
 
+// ================= RANDOM CODE =================
+
+function generateCode(){
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let code = "EP-";
+
+  for(let i = 0; i < 6; i++){
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+
+  return code;
+}
+
 // ================= GET CODE =================
 
 app.get("/get-code", async (req, res) => {
@@ -54,10 +63,6 @@ app.get("/get-code", async (req, res) => {
   try {
     const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
     const { userId, token, fp, captcha } = req.query;
-
-    console.log("IP:", ip);
-    console.log("CAPTCHA:", captcha);
-    console.log("SECRET:", process.env.TURNSTILE_SECRET);
 
     if (!captcha) {
       return res.json({ status: "captcha_fail" });
@@ -68,17 +73,10 @@ app.get("/get-code", async (req, res) => {
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
-        secret: process.env.TURNSTILE_SECRET, // ✅ FIX ĐÚNG
+        secret: process.env.TURNSTILE_SECRET, // FIX QUAN TRỌNG
         response: captcha
-      }),
-      {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        }
-      }
+      })
     );
-
-    console.log("VERIFY RESULT:", verify.data);
 
     if (!verify.data.success) {
       return res.json({ status: "captcha_fail" });
@@ -102,7 +100,7 @@ app.get("/get-code", async (req, res) => {
 
     // ================= TOKEN CHECK =================
 
-    if (token && token !== user.token) {
+    if (token && user.token && token !== user.token) {
       return res.json({ status: "device_changed" });
     }
 
@@ -124,7 +122,7 @@ app.get("/get-code", async (req, res) => {
 
     const today = new Date().toDateString();
 
-    if (user.day !== today) {
+    if (!user.day || user.day !== today) {
       user.day = today;
       user.count = 0;
     }
@@ -143,7 +141,7 @@ app.get("/get-code", async (req, res) => {
 
     // ================= GENERATE CODE =================
 
-    const code = "RUBY-" + Math.floor(Math.random() * 1000000);
+    const code = generateCode();
 
     user.lastTime = now;
     user.count += 1;
@@ -163,9 +161,7 @@ app.get("/get-code", async (req, res) => {
     });
 
   } catch (err) {
-    console.log("❌ ERROR FULL:", err);
-    console.log("❌ ERROR DATA:", err.response?.data);
-
+    console.log("❌ SERVER ERROR:", err);
     res.json({ status: "error" });
   }
 
