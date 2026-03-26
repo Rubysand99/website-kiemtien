@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -6,23 +8,28 @@ const mongoose = require("mongoose");
 
 const app = express();
 
+// ================= CONFIG =================
+
+app.set("trust proxy", true); // fix IP khi deploy Render
 app.use(cors());
 app.use(express.json());
 
 // ================= DATABASE =================
 
 mongoose.connect(process.env.MONGO_URL)
-.then(() => console.log("✅ DB OK"))
-.catch(err => console.log("❌ DB ERROR:", err));
+  .then(() => console.log("✅ DB OK"))
+  .catch(err => console.log("❌ DB ERROR:", err));
 
-// schema
+// ================= SCHEMA =================
+
 const userSchema = new mongoose.Schema({
   userId: String,
   ip: String,
   token: String,
   fp: String,
   lastTime: Number,
-  count: Number
+  count: Number,
+  day: String
 });
 
 const User = mongoose.model("User", userSchema);
@@ -30,7 +37,7 @@ const User = mongoose.model("User", userSchema);
 // ================= RATE LIMIT =================
 
 const limiter = rateLimit({
-  windowMs: 15 * 1000, // 15s
+  windowMs: 15 * 1000,
   max: 5
 });
 
@@ -50,6 +57,10 @@ app.get("/get-code", async (req, res) => {
     const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
     const { userId, token, fp, captcha } = req.query;
 
+    console.log("IP:", ip);
+    console.log("CAPTCHA:", captcha);
+    console.log("SECRET:", process.env.TURNSTILE_SECRET);
+
     if (!captcha) {
       return res.json({ status: "captcha_fail" });
     }
@@ -59,10 +70,17 @@ app.get("/get-code", async (req, res) => {
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
-        secret: process.env.CF_SECRET,
+        secret: process.env.TURNSTILE_SECRET, // ✅ FIX ĐÚNG
         response: captcha
-      })
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        }
+      }
     );
+
+    console.log("VERIFY RESULT:", verify.data);
 
     if (!verify.data.success) {
       return res.json({ status: "captcha_fail" });
@@ -79,7 +97,8 @@ app.get("/get-code", async (req, res) => {
         token: Math.random().toString(36),
         fp,
         lastTime: 0,
-        count: 0
+        count: 0,
+        day: new Date().toDateString()
       });
     }
 
@@ -107,7 +126,7 @@ app.get("/get-code", async (req, res) => {
 
     const today = new Date().toDateString();
 
-    if (!user.day || user.day !== today) {
+    if (user.day !== today) {
       user.day = today;
       user.count = 0;
     }
@@ -146,7 +165,9 @@ app.get("/get-code", async (req, res) => {
     });
 
   } catch (err) {
-    console.log(err);
+    console.log("❌ ERROR FULL:", err);
+    console.log("❌ ERROR DATA:", err.response?.data);
+
     res.json({ status: "error" });
   }
 
