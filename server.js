@@ -15,18 +15,26 @@ mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("✅ DB OK"))
 .catch(err => console.log("❌ DB ERROR:", err));
 
-// schema
+// USER schema
 const userSchema = new mongoose.Schema({
   userId: String,
   ip: String,
   token: String,
-  fp: String,
   lastTime: Number,
   count: Number,
   day: String
 });
 
 const User = mongoose.model("User", userSchema);
+
+// CODE schema
+const codeSchema = new mongoose.Schema({
+  code: String,
+  used: Boolean,
+  createdAt: Number
+});
+
+const Code = mongoose.model("Code", codeSchema);
 
 // ================= RATE LIMIT =================
 
@@ -62,18 +70,17 @@ app.get("/get-code", async (req, res) => {
 
   try {
     const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-    const { userId, token, fp, captcha } = req.query;
+    const { userId, token, captcha } = req.query;
 
     if (!captcha) {
       return res.json({ status: "captcha_fail" });
     }
 
-    // ================= CAPTCHA VERIFY =================
-
+    // CAPTCHA VERIFY
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
-        secret: process.env.TURNSTILE_SECRET, // FIX QUAN TRỌNG
+        secret: process.env.TURNSTILE_SECRET,
         response: captcha
       })
     );
@@ -82,8 +89,7 @@ app.get("/get-code", async (req, res) => {
       return res.json({ status: "captcha_fail" });
     }
 
-    // ================= USER =================
-
+    // USER
     let user = await User.findOne({ userId });
 
     if (!user) {
@@ -91,35 +97,25 @@ app.get("/get-code", async (req, res) => {
         userId,
         ip,
         token: Math.random().toString(36),
-        fp,
         lastTime: 0,
         count: 0,
         day: new Date().toDateString()
       });
     }
 
-    // ================= TOKEN CHECK =================
-
+    // TOKEN CHECK (giữ nhẹ)
     if (token && user.token && token !== user.token) {
       return res.json({ status: "device_changed" });
     }
 
-    // ================= DEVICE CHECK =================
-
-    if (user.fp && user.fp !== fp) {
-      return res.json({ status: "device_changed" });
-    }
-
-    // ================= COOLDOWN =================
-
     const now = Date.now();
 
+    // COOLDOWN
     if (now - user.lastTime < 15000) {
       return res.json({ status: "cooldown" });
     }
 
-    // ================= LIMIT / DAY =================
-
+    // LIMIT NGÀY
     const today = new Date().toDateString();
 
     if (!user.day || user.day !== today) {
@@ -131,22 +127,25 @@ app.get("/get-code", async (req, res) => {
       return res.json({ status: "limit" });
     }
 
-    // ================= IP CHECK =================
-
+    // IP CHECK
     const ipUsers = await User.countDocuments({ ip });
 
     if (ipUsers > 5) {
       return res.json({ status: "multi_detect" });
     }
 
-    // ================= GENERATE CODE =================
-
+    // GENERATE CODE
     const code = generateCode();
+
+    await Code.create({
+      code: code,
+      used: false,
+      createdAt: Date.now()
+    });
 
     user.lastTime = now;
     user.count += 1;
     user.ip = ip;
-    user.fp = fp;
 
     if (!user.token) {
       user.token = Math.random().toString(36);
@@ -167,7 +166,40 @@ app.get("/get-code", async (req, res) => {
 
 });
 
-// ================= START SERVER =================
+// ================= VERIFY CODE =================
+
+app.get("/verify-code", async (req, res) => {
+  try {
+    const { code } = req.query;
+
+    const regex = /^EP-[A-Z0-9]{6}$/;
+
+    if (!regex.test(code)) {
+      return res.json({ status: "invalid" });
+    }
+
+    const found = await Code.findOne({ code });
+
+    if (!found) {
+      return res.json({ status: "invalid" });
+    }
+
+    if (found.used) {
+      return res.json({ status: "used" });
+    }
+
+    found.used = true;
+    await found.save();
+
+    res.json({ status: "ok" });
+
+  } catch (err) {
+    console.log("VERIFY ERROR:", err);
+    res.json({ status: "error" });
+  }
+});
+
+// ================= START =================
 
 const PORT = process.env.PORT || 3000;
 
