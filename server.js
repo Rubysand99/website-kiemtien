@@ -15,25 +15,25 @@ mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("✅ DB OK"))
 .catch(err => console.log("❌ DB ERROR:", err));
 
-// USER schema
+// ================= SCHEMA =================
+
 const userSchema = new mongoose.Schema({
   userId: String,
   ip: String,
   token: String,
+  fp: String,
   lastTime: Number,
   count: Number,
   day: String
 });
 
-const User = mongoose.model("User", userSchema);
-
-// CODE schema
 const codeSchema = new mongoose.Schema({
   code: String,
-  used: Boolean,
-  createdAt: Number
+  used: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
 });
 
+const User = mongoose.model("User", userSchema);
 const Code = mongoose.model("Code", codeSchema);
 
 // ================= RATE LIMIT =================
@@ -51,9 +51,9 @@ app.get("/", (req, res) => {
   res.send("Server đang chạy OK 🚀");
 });
 
-// ================= RANDOM CODE =================
+// ================= GEN CODE =================
 
-function generateCode(){
+function genCode(){
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let code = "EP-";
 
@@ -67,16 +67,15 @@ function generateCode(){
 // ================= GET CODE =================
 
 app.get("/get-code", async (req, res) => {
-
   try {
     const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-    const { userId, token, captcha } = req.query;
+    const { userId, token, fp, captcha } = req.query;
 
     if (!captcha) {
       return res.json({ status: "captcha_fail" });
     }
 
-    // CAPTCHA VERIFY
+    // ===== CAPTCHA VERIFY =====
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
@@ -89,7 +88,6 @@ app.get("/get-code", async (req, res) => {
       return res.json({ status: "captcha_fail" });
     }
 
-    // USER
     let user = await User.findOne({ userId });
 
     if (!user) {
@@ -97,25 +95,25 @@ app.get("/get-code", async (req, res) => {
         userId,
         ip,
         token: Math.random().toString(36),
+        fp,
         lastTime: 0,
-        count: 0,
-        day: new Date().toDateString()
+        count: 0
       });
     }
 
-    // TOKEN CHECK (giữ nhẹ)
+    // ===== DEVICE CHECK (FIX NHẸ) =====
     if (token && user.token && token !== user.token) {
       return res.json({ status: "device_changed" });
     }
 
+    // ===== COOLDOWN =====
     const now = Date.now();
 
-    // COOLDOWN
     if (now - user.lastTime < 15000) {
       return res.json({ status: "cooldown" });
     }
 
-    // LIMIT NGÀY
+    // ===== LIMIT =====
     const today = new Date().toDateString();
 
     if (!user.day || user.day !== today) {
@@ -127,25 +125,15 @@ app.get("/get-code", async (req, res) => {
       return res.json({ status: "limit" });
     }
 
-    // IP CHECK
-    const ipUsers = await User.countDocuments({ ip });
+    // ===== GENERATE CODE =====
+    const code = genCode();
 
-    if (ipUsers > 5) {
-      return res.json({ status: "multi_detect" });
-    }
-
-    // GENERATE CODE
-    const code = generateCode();
-
-    await Code.create({
-      code: code,
-      used: false,
-      createdAt: Date.now()
-    });
+    await Code.create({ code });
 
     user.lastTime = now;
     user.count += 1;
     user.ip = ip;
+    user.fp = fp;
 
     if (!user.token) {
       user.token = Math.random().toString(36);
@@ -160,23 +148,16 @@ app.get("/get-code", async (req, res) => {
     });
 
   } catch (err) {
-    console.log("❌ SERVER ERROR:", err);
+    console.log(err);
     res.json({ status: "error" });
   }
-
 });
 
-// ================= VERIFY CODE =================
+// ================= CHECK CODE =================
 
-app.get("/verify-code", async (req, res) => {
+app.post("/check-code", async (req, res) => {
   try {
-    const { code } = req.query;
-
-    const regex = /^EP-[A-Z0-9]{6}$/;
-
-    if (!regex.test(code)) {
-      return res.json({ status: "invalid" });
-    }
+    const { code, discordId } = req.body;
 
     const found = await Code.findOne({ code });
 
@@ -184,17 +165,37 @@ app.get("/verify-code", async (req, res) => {
       return res.json({ status: "invalid" });
     }
 
+    // hết hạn 60s
+    if (Date.now() - new Date(found.createdAt).getTime() > 60000) {
+      return res.json({ status: "expired" });
+    }
+
     if (found.used) {
-      return res.json({ status: "used" });
+      return res.json({ status: "expired" });
     }
 
     found.used = true;
     await found.save();
 
-    res.json({ status: "ok" });
+    let user = await User.findOne({ userId: discordId });
+
+    if (!user) {
+      user = new User({
+        userId: discordId,
+        count: 0
+      });
+    }
+
+    user.count = (user.count || 0) + 1;
+    await user.save();
+
+    res.json({
+      status: "ok",
+      points: user.count
+    });
 
   } catch (err) {
-    console.log("VERIFY ERROR:", err);
+    console.log(err);
     res.json({ status: "error" });
   }
 });
