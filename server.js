@@ -5,6 +5,9 @@ const mongoose = require("mongoose");
 
 const app = express();
 
+// 🔥 FIX TRUST PROXY (bắt buộc trên Render)
+app.set("trust proxy", 1);
+
 app.use(cors());
 app.use(express.json());
 
@@ -19,8 +22,6 @@ mongoose.connect(process.env.MONGO_URL)
 const userSchema = new mongoose.Schema({
   userId: String,
   ip: String,
-  token: String,
-  fp: String,
   lastTime: Number,
   count: Number,
   day: String
@@ -46,8 +47,8 @@ app.get("/", (req, res) => {
 
 async function isVPN(ip) {
   try {
-    const res = await axios.get(`http://ip-api.com/json/${ip}?fields=proxy,hosting`);
-    return res.data.proxy || res.data.hosting;
+    const r = await axios.get(`http://ip-api.com/json/${ip}?fields=proxy,hosting`);
+    return r.data.proxy || r.data.hosting;
   } catch {
     return false;
   }
@@ -57,14 +58,13 @@ async function isVPN(ip) {
 
 app.get("/get-code", async (req, res) => {
   try {
-    const ipRaw = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-    const ip = ipRaw.split(",")[0].trim();
+    const ip = req.ip;
 
-    const { userId, fp, captcha } = req.query;
+    const { userId, captcha } = req.query;
 
     if (!captcha) return res.json({ status: "captcha_fail" });
 
-    // 🔒 CHECK VPN
+    // 🔒 CHẶN VPN
     const vpn = await isVPN(ip);
     if (vpn) {
       return res.json({ status: "vpn_blocked" });
@@ -75,7 +75,8 @@ app.get("/get-code", async (req, res) => {
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
         secret: process.env.TURNSTILE_SECRET,
-        response: captcha
+        response: captcha,
+        remoteip: ip
       })
     );
 
@@ -89,8 +90,6 @@ app.get("/get-code", async (req, res) => {
       user = new User({
         userId,
         ip,
-        token: Math.random().toString(36),
-        fp,
         lastTime: 0,
         count: 0,
         day: ""
@@ -99,12 +98,12 @@ app.get("/get-code", async (req, res) => {
 
     const now = Date.now();
 
-    // ⏱ 60s cooldown
+    // ⏱ COOLDOWN 60s
     if (now - user.lastTime < 60000) {
       return res.json({ status: "cooldown" });
     }
 
-    // 📅 reset ngày
+    // 📅 RESET THEO NGÀY
     const today = new Date().toDateString();
 
     if (!user.day || user.day !== today) {
@@ -112,12 +111,12 @@ app.get("/get-code", async (req, res) => {
       user.count = 0;
     }
 
-    // 🔒 limit 3 lần/ngày
+    // 🔒 GIỚI HẠN 3 LẦN
     if (user.count >= 3) {
       return res.json({ status: "limit" });
     }
 
-    // 🎁 tạo code
+    // 🎁 TẠO CODE
     const code = "EP-" + Math.random().toString(36).substring(2, 8).toUpperCase();
 
     await Code.create({
@@ -137,7 +136,7 @@ app.get("/get-code", async (req, res) => {
     });
 
   } catch (err) {
-    console.log("ERROR:", err.response?.data || err);
+    console.log("ERROR:", err);
     res.json({ status: "error" });
   }
 });
@@ -146,7 +145,7 @@ app.get("/get-code", async (req, res) => {
 
 app.post("/check-code", async (req, res) => {
   try {
-    const { code, discordId } = req.body;
+    const { code } = req.body;
 
     const data = await Code.findOne({ code });
 
@@ -155,7 +154,7 @@ app.post("/check-code", async (req, res) => {
     }
 
     if (data.used) {
-      return res.json({ status: "invalid" });
+      return res.json({ status: "used" });
     }
 
     data.used = true;
