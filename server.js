@@ -193,6 +193,11 @@ app.get("/points/:id", async (req, res) => {
   res.json({ points: user?.points || 0 });
 });
 
+app.get("/leaderboard", async (req, res) => {
+  const users = await User.find().sort({ points: -1 }).limit(10);
+  res.json(users);
+});
+
 // ================= ADD POINT =================
 app.post("/add-point", async (req, res) => {
   const { discordId, amount } = req.body;
