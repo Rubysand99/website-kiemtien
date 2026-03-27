@@ -2,29 +2,20 @@ const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
 const mongoose = require("mongoose");
-const rateLimit = require("express-rate-limit");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// ================= FIX PROXY =================
-app.set("trust proxy", 1);
-
-// ================= RATE LIMIT =================
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30
-});
-app.use(limiter);
-
 // ================= DATABASE =================
+
 mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("✅ DB OK"))
 .catch(err => console.log("❌ DB ERROR:", err));
 
 // ================= SCHEMA =================
+
 const userSchema = new mongoose.Schema({
   userId: String,
   ip: String,
@@ -32,36 +23,52 @@ const userSchema = new mongoose.Schema({
   fp: String,
   lastTime: Number,
   count: Number,
-  day: String,
-  points: { type: Number, default: 0 }
+  day: String
 });
 
 const codeSchema = new mongoose.Schema({
   code: String,
   userId: String,
   used: { type: Boolean, default: false },
-  createdAt: { 
-    type: Date, 
-    default: Date.now, 
-    expires: 900 // ✅ 15 phút
-  }
+  createdAt: { type: Date, default: Date.now }
 });
 
 const User = mongoose.model("User", userSchema);
 const Code = mongoose.model("Code", codeSchema);
 
 // ================= ROOT =================
+
 app.get("/", (req, res) => {
   res.send("Server OK 🚀");
 });
 
+// ================= CHECK VPN =================
+
+async function isVPN(ip) {
+  try {
+    const res = await axios.get(`http://ip-api.com/json/${ip}?fields=proxy,hosting`);
+    return res.data.proxy || res.data.hosting;
+  } catch {
+    return false;
+  }
+}
+
 // ================= GET CODE =================
+
 app.get("/get-code", async (req, res) => {
   try {
-    const ip = req.ip;
+    const ipRaw = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+    const ip = ipRaw.split(",")[0].trim();
+
     const { userId, fp, captcha } = req.query;
 
     if (!captcha) return res.json({ status: "captcha_fail" });
+
+    // 🔒 CHECK VPN
+    const vpn = await isVPN(ip);
+    if (vpn) {
+      return res.json({ status: "vpn_blocked" });
+    }
 
     // ===== CAPTCHA =====
     const verify = await axios.post(
@@ -86,18 +93,18 @@ app.get("/get-code", async (req, res) => {
         fp,
         lastTime: 0,
         count: 0,
-        points: 0
+        day: ""
       });
     }
 
     const now = Date.now();
 
-    // ===== COOLDOWN =====
-    if (now - user.lastTime < 15000) {
+    // ⏱ 60s cooldown
+    if (now - user.lastTime < 60000) {
       return res.json({ status: "cooldown" });
     }
 
-    // ===== LIMIT =====
+    // 📅 reset ngày
     const today = new Date().toDateString();
 
     if (!user.day || user.day !== today) {
@@ -105,11 +112,12 @@ app.get("/get-code", async (req, res) => {
       user.count = 0;
     }
 
-    if (user.count >= 5) {
+    // 🔒 limit 3 lần/ngày
+    if (user.count >= 3) {
       return res.json({ status: "limit" });
     }
 
-    // ===== CREATE CODE =====
+    // 🎁 tạo code
     const code = "EP-" + Math.random().toString(36).substring(2, 8).toUpperCase();
 
     await Code.create({
@@ -125,8 +133,7 @@ app.get("/get-code", async (req, res) => {
 
     res.json({
       status: "ok",
-      code,
-      expiresIn: 900 // ✅ 15 phút
+      code
     });
 
   } catch (err) {
@@ -136,6 +143,7 @@ app.get("/get-code", async (req, res) => {
 });
 
 // ================= CHECK CODE =================
+
 app.post("/check-code", async (req, res) => {
   try {
     const { code, discordId } = req.body;
@@ -147,38 +155,15 @@ app.post("/check-code", async (req, res) => {
     }
 
     if (data.used) {
-      return res.json({ status: "used" });
+      return res.json({ status: "invalid" });
     }
-
-    // ===== CHECK EXPIRED (backup) =====
-    const now = Date.now();
-    const created = new Date(data.createdAt).getTime();
-
-    if (now - created > 15 * 60 * 1000) {
-      return res.json({ status: "expired" });
-    }
-
-    // ===== USER =====
-    let user = await User.findOne({ userId: discordId });
-
-    if (!user) {
-      user = new User({
-        userId: discordId,
-        points: 0
-      });
-    }
-
-    // ===== ADD POINT =====
-    user.points += 1;
 
     data.used = true;
-
-    await user.save();
     await data.save();
 
     res.json({
       status: "ok",
-      points: user.points
+      points: 1
     });
 
   } catch (err) {
@@ -187,56 +172,8 @@ app.post("/check-code", async (req, res) => {
   }
 });
 
-// ================= GET POINT =================
-app.get("/points/:id", async (req, res) => {
-  const user = await User.findOne({ userId: req.params.id });
-  res.json({ points: user?.points || 0 });
-});
-
-app.get("/leaderboard", async (req, res) => {
-  const users = await User.find().sort({ points: -1 }).limit(10);
-  res.json(users);
-});
-
-// ================= ADD POINT =================
-app.post("/add-point", async (req, res) => {
-  const { discordId, amount } = req.body;
-
-  let user = await User.findOne({ userId: discordId });
-
-  if (!user) {
-    user = new User({ userId: discordId, points: 0 });
-  }
-
-  user.points += amount;
-
-  await user.save();
-
-  res.json({ success: true, points: user.points });
-});
-
-// ================= REMOVE POINT =================
-app.post("/remove-point", async (req, res) => {
-  const { discordId, amount } = req.body;
-
-  let user = await User.findOne({ userId: discordId });
-
-  if (!user) {
-    return res.json({ success: false });
-  }
-
-  if (amount == null) {
-    user.points = 0;
-  } else {
-    user.points = Math.max(0, user.points - amount);
-  }
-
-  await user.save();
-
-  res.json({ success: true, points: user.points });
-});
-
 // ================= START =================
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
