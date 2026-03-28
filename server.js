@@ -4,7 +4,6 @@ const axios = require("axios");
 const mongoose = require("mongoose");
 
 const app = express();
-app.set("trust proxy", 1);
 
 app.use(cors());
 app.use(express.json());
@@ -22,41 +21,63 @@ const userSchema = new mongoose.Schema({
   ip: String,
   lastTime: Number,
   count: Number,
-  day: String,
-  points: { type: Number, default: 0 } // 🔥 FIX
+  day: String
 });
 
 const codeSchema = new mongoose.Schema({
   code: String,
+  userId: String,
   used: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 
+const pointSchema = new mongoose.Schema({
+  userId: String,
+  points: { type: Number, default: 0 }
+});
+
+// 🔥 DAILY
+const dailySchema = new mongoose.Schema({
+  ip: String,
+  lastClaim: Number,
+  streak: Number
+});
+
 const User = mongoose.model("User", userSchema);
 const Code = mongoose.model("Code", codeSchema);
+const Point = mongoose.model("Point", pointSchema);
+const Daily = mongoose.model("Daily", dailySchema);
 
-// ================= VPN CHECK =================
+// ================= ROOT =================
 
-async function isVPN(ip) {
-  try {
-    const res = await axios.get(`https://ipapi.co/${ip}/json/`);
-    return res.data.proxy || res.data.vpn || res.data.tor;
-  } catch {
-    return false;
-  }
+app.get("/", (req, res) => {
+  res.send("Server OK 🚀");
+});
+
+// ================= REWARD =================
+
+function getReward(streak){
+  if(streak <= 4) return 1;
+  if(streak <= 9) return 2;
+  if(streak <= 14) return 3;
+  if(streak <= 19) return 4;
+  return 5;
 }
 
 // ================= GET CODE =================
 
 app.get("/get-code", async (req, res) => {
   try {
-    const ip = req.ip;
+
+    const ip = req.headers["cf-connecting-ip"] 
+      || req.headers["x-forwarded-for"] 
+      || req.socket.remoteAddress;
+
     const { userId, captcha } = req.query;
 
-    if (!userId || !captcha) {
-      return res.json({ status: "error" });
-    }
+    if (!captcha) return res.json({ status: "captcha_fail" });
 
+    // CAPTCHA VERIFY
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
@@ -67,10 +88,6 @@ app.get("/get-code", async (req, res) => {
 
     if (!verify.data.success) {
       return res.json({ status: "captcha_fail" });
-    }
-
-    if (await isVPN(ip)) {
-      return res.json({ status: "vpn_blocked" });
     }
 
     let user = await User.findOne({ userId });
@@ -86,6 +103,7 @@ app.get("/get-code", async (req, res) => {
 
     const now = Date.now();
 
+    // ⏱ cooldown 60s
     if (now - user.lastTime < 60000) {
       return res.json({ status: "cooldown" });
     }
@@ -97,13 +115,14 @@ app.get("/get-code", async (req, res) => {
       user.count = 0;
     }
 
+    // 🚫 limit 3 lần/ngày
     if (user.count >= 3) {
       return res.json({ status: "limit" });
     }
 
     const code = "EP-" + Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    await Code.create({ code });
+    await Code.create({ code, userId });
 
     user.lastTime = now;
     user.count += 1;
@@ -111,43 +130,37 @@ app.get("/get-code", async (req, res) => {
 
     await user.save();
 
-    res.json({ status: "ok", code });
+    res.json({
+      status: "ok",
+      code
+    });
 
   } catch (err) {
-    console.log("❌ ERROR:", err.message);
+    console.log(err);
     res.json({ status: "error" });
   }
 });
 
-// ================= CHECK CODE (FIX LƯU POINT) =================
+// ================= CHECK CODE =================
 
 app.post("/check-code", async (req, res) => {
   try {
+
     const { code, discordId } = req.body;
 
     const data = await Code.findOne({ code });
 
-    if (!data) return res.json({ status: "invalid" });
-    if (data.used) return res.json({ status: "invalid" });
-
-    const now = Date.now();
-    const created = new Date(data.createdAt).getTime();
-
-    if (now - created > 15 * 60 * 1000) {
-      return res.json({ status: "expired" });
+    if (!data || data.used) {
+      return res.json({ status: "invalid" });
     }
 
     data.used = true;
     await data.save();
 
-    // 🔥 LƯU POINT
-    let user = await User.findOne({ userId: discordId });
+    let user = await Point.findOne({ userId: discordId });
 
     if (!user) {
-      user = new User({
-        userId: discordId,
-        points: 0
-      });
+      user = new Point({ userId: discordId, points: 0 });
     }
 
     user.points += 1;
@@ -159,7 +172,6 @@ app.post("/check-code", async (req, res) => {
     });
 
   } catch (err) {
-    console.log("❌ CHECK ERROR:", err.message);
     res.json({ status: "error" });
   }
 });
@@ -167,45 +179,69 @@ app.post("/check-code", async (req, res) => {
 // ================= GET POINT =================
 
 app.get("/points/:id", async (req, res) => {
-  try {
-    const user = await User.findOne({ userId: req.params.id });
-    res.json({ points: user?.points || 0 });
-  } catch {
-    res.json({ points: 0 });
-  }
+  const user = await Point.findOne({ userId: req.params.id });
+  res.json({ points: user?.points || 0 });
 });
 
-// ================= LEADERBOARD =================
-
-app.get("/leaderboard", async (req, res) => {
-  try {
-    const users = await User.find({ points: { $gt: 0 } })
-      .sort({ points: -1 })
-      .limit(20);
-
-    res.json(users);
-  } catch {
-    res.json([]);
-  }
-});
+// ================= REMOVE POINT =================
 
 app.post("/remove-point", async (req, res) => {
+  const { discordId, amount } = req.body;
+
+  let user = await Point.findOne({ userId: discordId });
+  if (!user) return res.json({ status: "error" });
+
+  if (user.points < amount) {
+    return res.json({ status: "not_enough" });
+  }
+
+  user.points -= amount;
+  await user.save();
+
+  res.json({ status: "ok", points: user.points });
+});
+
+// ================= DAILY =================
+
+app.get("/daily", async (req, res) => {
   try {
-    const { discordId, amount } = req.body;
 
-    let user = await User.findOne({ userId: discordId });
+    const ip = req.headers["cf-connecting-ip"] 
+      || req.headers["x-forwarded-for"] 
+      || req.socket.remoteAddress;
 
-    if (!user) return res.json({ status: "error" });
+    const now = Date.now();
 
-    if (amount) {
-      user.points = Math.max(0, user.points - amount);
-    } else {
-      user.points = 0;
+    let user = await Daily.findOne({ ip });
+
+    if (!user) {
+      user = new Daily({
+        ip,
+        lastClaim: 0,
+        streak: 0
+      });
     }
 
+    if (now - user.lastClaim < 86400000) {
+      return res.json({ status: "cooldown" });
+    }
+
+    if (now - user.lastClaim <= 172800000) {
+      user.streak += 1;
+    } else {
+      user.streak = 1;
+    }
+
+    const reward = getReward(user.streak);
+
+    user.lastClaim = now;
     await user.save();
 
-    res.json({ status: "ok" });
+    res.json({
+      status: "ok",
+      reward,
+      streak: user.streak
+    });
 
   } catch {
     res.json({ status: "error" });
