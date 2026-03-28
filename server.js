@@ -9,13 +9,11 @@ app.use(cors());
 app.use(express.json());
 
 // ================= DATABASE =================
-
 mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("✅ DB OK"))
 .catch(err => console.log("❌ DB ERROR:", err));
 
 // ================= SCHEMA =================
-
 const userSchema = new mongoose.Schema({
   userId: String,
   ip: String,
@@ -36,7 +34,6 @@ const pointSchema = new mongoose.Schema({
   points: { type: Number, default: 0 }
 });
 
-// 🔥 DAILY
 const dailySchema = new mongoose.Schema({
   ip: String,
   lastClaim: Number,
@@ -48,14 +45,17 @@ const Code = mongoose.model("Code", codeSchema);
 const Point = mongoose.model("Point", pointSchema);
 const Daily = mongoose.model("Daily", dailySchema);
 
-// ================= ROOT =================
-
-app.get("/", (req, res) => {
-  res.send("Server OK 🚀");
-});
+// ================= VPN CHECK =================
+async function isVPN(ip) {
+  try {
+    const res = await axios.get(`http://ip-api.com/json/${ip}?fields=proxy,hosting`);
+    return res.data.proxy || res.data.hosting;
+  } catch {
+    return false;
+  }
+}
 
 // ================= REWARD =================
-
 function getReward(streak){
   if(streak <= 4) return 1;
   if(streak <= 9) return 2;
@@ -65,7 +65,6 @@ function getReward(streak){
 }
 
 // ================= GET CODE =================
-
 app.get("/get-code", async (req, res) => {
   try {
 
@@ -73,11 +72,14 @@ app.get("/get-code", async (req, res) => {
       || req.headers["x-forwarded-for"] 
       || req.socket.remoteAddress;
 
+    if (await isVPN(ip)) {
+      return res.json({ status: "vpn_blocked" });
+    }
+
     const { userId, captcha } = req.query;
 
     if (!captcha) return res.json({ status: "captcha_fail" });
 
-    // CAPTCHA VERIFY
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
@@ -103,7 +105,6 @@ app.get("/get-code", async (req, res) => {
 
     const now = Date.now();
 
-    // ⏱ cooldown 60s
     if (now - user.lastTime < 60000) {
       return res.json({ status: "cooldown" });
     }
@@ -115,7 +116,6 @@ app.get("/get-code", async (req, res) => {
       user.count = 0;
     }
 
-    // 🚫 limit 3 lần/ngày
     if (user.count >= 3) {
       return res.json({ status: "limit" });
     }
@@ -130,10 +130,7 @@ app.get("/get-code", async (req, res) => {
 
     await user.save();
 
-    res.json({
-      status: "ok",
-      code
-    });
+    res.json({ status: "ok", code });
 
   } catch (err) {
     console.log(err);
@@ -142,7 +139,6 @@ app.get("/get-code", async (req, res) => {
 });
 
 // ================= CHECK CODE =================
-
 app.post("/check-code", async (req, res) => {
   try {
 
@@ -159,32 +155,25 @@ app.post("/check-code", async (req, res) => {
 
     let user = await Point.findOne({ userId: discordId });
 
-    if (!user) {
-      user = new Point({ userId: discordId, points: 0 });
-    }
+    if (!user) user = new Point({ userId: discordId, points: 0 });
 
     user.points += 1;
     await user.save();
 
-    res.json({
-      status: "ok",
-      points: user.points
-    });
+    res.json({ status: "ok", points: user.points });
 
-  } catch (err) {
+  } catch {
     res.json({ status: "error" });
   }
 });
 
-// ================= GET POINT =================
-
+// ================= POINT =================
 app.get("/points/:id", async (req, res) => {
   const user = await Point.findOne({ userId: req.params.id });
   res.json({ points: user?.points || 0 });
 });
 
 // ================= REMOVE POINT =================
-
 app.post("/remove-point", async (req, res) => {
   const { discordId, amount } = req.body;
 
@@ -202,13 +191,16 @@ app.post("/remove-point", async (req, res) => {
 });
 
 // ================= DAILY =================
-
 app.get("/daily", async (req, res) => {
   try {
 
     const ip = req.headers["cf-connecting-ip"] 
       || req.headers["x-forwarded-for"] 
       || req.socket.remoteAddress;
+
+    if (await isVPN(ip)) {
+      return res.json({ status: "vpn_blocked" });
+    }
 
     const now = Date.now();
 
@@ -249,7 +241,6 @@ app.get("/daily", async (req, res) => {
 });
 
 // ================= START =================
-
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
