@@ -189,6 +189,29 @@ app.get("/leaderboard", async (req, res) => {
   }
 });
 
+app.post("/remove-point", async (req, res) => {
+  try {
+    const { discordId, amount } = req.body;
+
+    let user = await User.findOne({ userId: discordId });
+
+    if (!user) return res.json({ status: "error" });
+
+    if (amount) {
+      user.points = Math.max(0, user.points - amount);
+    } else {
+      user.points = 0;
+    }
+
+    await user.save();
+
+    res.json({ status: "ok" });
+
+  } catch {
+    res.json({ status: "error" });
+  }
+});
+
 // ================= START =================
 
 const PORT = process.env.PORT || 3000;
