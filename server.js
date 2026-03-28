@@ -4,8 +4,6 @@ const axios = require("axios");
 const mongoose = require("mongoose");
 
 const app = express();
-
-// 🔥 FIX PROXY (QUAN TRỌNG)
 app.set("trust proxy", 1);
 
 app.use(cors());
@@ -24,7 +22,8 @@ const userSchema = new mongoose.Schema({
   ip: String,
   lastTime: Number,
   count: Number,
-  day: String
+  day: String,
+  points: { type: Number, default: 0 } // 🔥 FIX
 });
 
 const codeSchema = new mongoose.Schema({
@@ -35,12 +34,6 @@ const codeSchema = new mongoose.Schema({
 
 const User = mongoose.model("User", userSchema);
 const Code = mongoose.model("Code", codeSchema);
-
-// ================= ROOT =================
-
-app.get("/", (req, res) => {
-  res.send("Server OK 🚀");
-});
 
 // ================= VPN CHECK =================
 
@@ -60,13 +53,10 @@ app.get("/get-code", async (req, res) => {
     const ip = req.ip;
     const { userId, captcha } = req.query;
 
-    console.log("IP:", ip);
-
     if (!userId || !captcha) {
       return res.json({ status: "error" });
     }
 
-    // ===== CAPTCHA =====
     const verify = await axios.post(
       "https://challenges.cloudflare.com/turnstile/v0/siteverify",
       new URLSearchParams({
@@ -75,13 +65,10 @@ app.get("/get-code", async (req, res) => {
       })
     );
 
-    console.log("VERIFY:", verify.data);
-
     if (!verify.data.success) {
       return res.json({ status: "captcha_fail" });
     }
 
-    // ===== VPN BLOCK =====
     if (await isVPN(ip)) {
       return res.json({ status: "vpn_blocked" });
     }
@@ -99,12 +86,10 @@ app.get("/get-code", async (req, res) => {
 
     const now = Date.now();
 
-    // ===== COOLDOWN (60s) =====
     if (now - user.lastTime < 60000) {
       return res.json({ status: "cooldown" });
     }
 
-    // ===== LIMIT (3 lần/ngày) =====
     const today = new Date().toDateString();
 
     if (!user.day || user.day !== today) {
@@ -116,7 +101,6 @@ app.get("/get-code", async (req, res) => {
       return res.json({ status: "limit" });
     }
 
-    // ===== CREATE CODE =====
     const code = "EP-" + Math.random().toString(36).substring(2, 8).toUpperCase();
 
     await Code.create({ code });
@@ -127,34 +111,25 @@ app.get("/get-code", async (req, res) => {
 
     await user.save();
 
-    res.json({
-      status: "ok",
-      code
-    });
+    res.json({ status: "ok", code });
 
   } catch (err) {
-    console.log("❌ ERROR FULL:", err.response?.data || err.message);
+    console.log("❌ ERROR:", err.message);
     res.json({ status: "error" });
   }
 });
 
-// ================= CHECK CODE =================
+// ================= CHECK CODE (FIX LƯU POINT) =================
 
 app.post("/check-code", async (req, res) => {
   try {
-    const { code } = req.body;
+    const { code, discordId } = req.body;
 
     const data = await Code.findOne({ code });
 
-    if (!data) {
-      return res.json({ status: "invalid" });
-    }
+    if (!data) return res.json({ status: "invalid" });
+    if (data.used) return res.json({ status: "invalid" });
 
-    if (data.used) {
-      return res.json({ status: "invalid" });
-    }
-
-    // ===== EXPIRE 15 PHÚT =====
     const now = Date.now();
     const created = new Date(data.createdAt).getTime();
 
@@ -165,14 +140,52 @@ app.post("/check-code", async (req, res) => {
     data.used = true;
     await data.save();
 
+    // 🔥 LƯU POINT
+    let user = await User.findOne({ userId: discordId });
+
+    if (!user) {
+      user = new User({
+        userId: discordId,
+        points: 0
+      });
+    }
+
+    user.points += 1;
+    await user.save();
+
     res.json({
       status: "ok",
-      points: 1
+      points: user.points
     });
 
   } catch (err) {
     console.log("❌ CHECK ERROR:", err.message);
     res.json({ status: "error" });
+  }
+});
+
+// ================= GET POINT =================
+
+app.get("/points/:id", async (req, res) => {
+  try {
+    const user = await User.findOne({ userId: req.params.id });
+    res.json({ points: user?.points || 0 });
+  } catch {
+    res.json({ points: 0 });
+  }
+});
+
+// ================= LEADERBOARD =================
+
+app.get("/leaderboard", async (req, res) => {
+  try {
+    const users = await User.find({ points: { $gt: 0 } })
+      .sort({ points: -1 })
+      .limit(20);
+
+    res.json(users);
+  } catch {
+    res.json([]);
   }
 });
 
